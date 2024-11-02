@@ -1,0 +1,424 @@
+import javax.swing.*;
+import java.awt.*;
+import java.util.*;
+import java.util.List;
+import java.util.Timer;
+import java.util.TimerTask;
+import javax.swing.JProgressBar;
+import java.io.*;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+
+
+
+public class matchtwotry extends JFrame {
+    private final int GAME_DURATION = 165; // 2 minutes in seconds
+    private final int WORD_COOLDOWN = 5; // 10 seconds cooldown
+    private final List<String> spanishWords = new ArrayList<>(Arrays.asList(
+            "gato", "perro", "casa", "libro", "árbol", "ayer", "fui", "fuiste",
+            "yo nunca haría eso", "siento que eso nunca pasaría", "algún día tal vez",
+            "mesa", "silla", "agua", "pan", "sol", "salir", "no sabia eso", "se", "no puedes hacer eso"
+    ));
+
+    private final List<String> englishWords = new ArrayList<>(Arrays.asList(
+            "cat", "dog", "house", "book", "tree", "yesterday", "i went", "did you go",
+            "i would never do that", "i feel like that would never happen", "one day maybe",
+            "table", "chair", "water", "bread", "sun", "leave", "i didnt know that", "to", "you cant do that"
+    ));
+
+
+    private final JButton[] spanishButtons;
+    private final JButton[] englishButtons;
+    private final JLabel scoreLabel;
+    private final JLabel timerLabel;
+    private int score = 0;
+    private JButton selectedButton = null;
+    private boolean isSpanishSelected = false;
+    private final Map<String, String> wordPairs;
+    private Timer gameTimer;
+    private int timeLeft;
+    private final Random random = new Random();
+    private final List<JButton> matchedButtons;
+    private boolean canSelect = true;
+    private JProgressBar progressBar;
+
+
+    // Cooldown tracking
+    private final Map<String, Long> wordCooldowns = new HashMap<>();
+
+    public matchtwotry() {
+        loadWordsFromFile();
+        createMenu();
+        setTitle("Match Madness - Spanish Learning Game");
+        setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+        setSize(1000, 600);
+        setLayout(new BorderLayout());
+
+        matchedButtons = new ArrayList<>();
+
+        // Create word pairs
+        wordPairs = new HashMap<>();
+        for (int i = 0; i < spanishWords.size(); i++) {
+            wordPairs.put(spanishWords.get(i), englishWords.get(i));
+            wordPairs.put(englishWords.get(i), spanishWords.get(i));
+        }
+
+        // Initialize UI components
+        JPanel gamePanel = new JPanel(new GridLayout(1, 2, 20, 0));
+        JPanel spanishPanel = new JPanel(new GridLayout(5, 1, 10, 10));
+        JPanel englishPanel = new JPanel(new GridLayout(5, 1, 10, 10));
+
+        spanishButtons = new JButton[5];
+        englishButtons = new JButton[5];
+
+        // Initialize and shuffle words
+        List<String> currentSpanishWords = new ArrayList<>(spanishWords.subList(0, 5));
+        List<String> currentEnglishWords = new ArrayList<>();
+        for (String word : currentSpanishWords) {
+            currentEnglishWords.add(wordPairs.get(word));
+        }
+        Collections.shuffle(currentSpanishWords);
+        Collections.shuffle(currentEnglishWords);
+
+        // Create Spanish buttons
+        for (int i = 0; i < 5; i++) {
+            spanishButtons[i] = createWordButton(currentSpanishWords.get(i), true);
+            spanishPanel.add(spanishButtons[i]);
+        }
+
+        // Create English buttons
+        for (int i = 0; i < 5; i++) {
+            englishButtons[i] = createWordButton(currentEnglishWords.get(i), false);
+            englishPanel.add(englishButtons[i]);
+        }
+
+        gamePanel.add(spanishPanel);
+        gamePanel.add(englishPanel);
+
+        // Status panel
+        JPanel statusPanel = new JPanel(new FlowLayout());
+        scoreLabel = new JLabel("Score: 0");
+        timerLabel = new JLabel("Time: 2:00");
+        statusPanel.add(scoreLabel);
+        statusPanel.add(timerLabel);
+
+        progressBar = new JProgressBar(0, 100);
+        progressBar.setValue(0);
+        progressBar.setStringPainted(true);
+
+        add(statusPanel, BorderLayout.NORTH);
+        add(gamePanel, BorderLayout.CENTER);
+        statusPanel.add(progressBar);
+
+        startTimer();
+    }
+    private void loadWordsFromFile() {
+        try {
+            List<String> lines = Files.readAllLines(Paths.get("words.txt"));
+            for (String line : lines) {
+                String[] parts = line.split(",");
+                if (parts.length == 2) {
+                    String englishWord = parts[0].trim();
+                    String spanishWord = parts[1].trim();
+                    englishWords.add(englishWord);
+                    spanishWords.add(spanishWord);
+                    wordPairs.put(englishWord, spanishWord);
+                    wordPairs.put(spanishWord, englishWord);
+                }
+            }
+        } catch (IOException e) {
+            System.err.println("Error loading words: " + e.getMessage());
+        }
+    }
+
+    // Add this method to save words to the file
+    private void saveWordsToFile() {
+        try (BufferedWriter writer = new BufferedWriter(new FileWriter("words.txt"))) {
+            for (int i = 0; i < englishWords.size(); i++) {
+                writer.write(englishWords.get(i) + "," + spanishWords.get(i));
+                writer.newLine();
+            }
+        } catch (IOException e) {
+            System.err.println("Error saving words: " + e.getMessage());
+        }
+    }
+
+    private void createMenu() {
+        JMenuBar menuBar = new JMenuBar();
+
+        // Create "Options" menu
+        JMenu optionsMenu = new JMenu("Options");
+
+        // Add "Add New Word" menu item
+        JMenuItem addWordItem = new JMenuItem("Add New Word");
+        addWordItem.addActionListener(e -> addCustomWord());
+        optionsMenu.add(addWordItem);
+
+        menuBar.add(optionsMenu);
+        setJMenuBar(menuBar);
+    }
+
+    private void refreshButtons() {
+        // Choose random words for display, ensuring no duplicates
+        List<String> currentSpanishWords = new ArrayList<>(spanishWords);
+        List<String> currentEnglishWords = new ArrayList<>();
+
+        for (String word : currentSpanishWords) {
+            currentEnglishWords.add(wordPairs.get(word));
+        }
+        Collections.shuffle(currentSpanishWords);
+        Collections.shuffle(currentEnglishWords);
+
+        // Assign words to Spanish and English buttons
+        for (int i = 0; i < 5; i++) {
+            spanishButtons[i].setText(i < currentSpanishWords.size() ? currentSpanishWords.get(i) : "");
+            englishButtons[i].setText(i < currentEnglishWords.size() ? currentEnglishWords.get(i) : "");
+        }
+    }
+
+
+
+    private void addCustomWord() {
+        WordEntryDialog dialog = new WordEntryDialog(this);
+        dialog.setVisible(true);
+
+        if (dialog.isConfirmed()) {
+            String englishWord = dialog.getEnglishWord();
+            String spanishWord = dialog.getSpanishWord();
+
+            if (!englishWord.isEmpty() && !spanishWord.isEmpty()) {
+                // Add the words to the game lists and wordPairs map
+                englishWords.add(englishWord);
+                spanishWords.add(spanishWord);
+                wordPairs.put(englishWord, spanishWord);
+                wordPairs.put(spanishWord, englishWord);
+
+                saveWordsToFile(); // Save the updated word lists to the file
+
+                JOptionPane.showMessageDialog(this, "Word pair added: " + englishWord + " - " + spanishWord);
+            } else {
+                JOptionPane.showMessageDialog(this, "Both fields must be filled out to add a new word pair.");
+            }
+        }
+    }
+
+
+
+    private JButton createWordButton(String word, boolean isSpanish) {
+        JButton button = new JButton(word);
+        button.addActionListener(e -> handleButtonClick(button, isSpanish));
+        return button;
+    }
+
+    private void handleButtonClick(JButton button, boolean isSpanishButton) {
+        if (!canSelect || matchedButtons.contains(button) || button.getText().isEmpty()) {
+            return;
+        }
+
+        if (selectedButton == null) {
+            selectedButton = button;
+            isSpanishSelected = isSpanishButton;
+            button.setBackground(Color.YELLOW);
+        } else {
+            if (isSpanishButton == isSpanishSelected) {
+                selectedButton.setBackground(null);
+                selectedButton = button;
+                button.setBackground(Color.YELLOW);
+                return;
+            }
+
+            canSelect = false;
+            String firstWord = selectedButton.getText();
+            String secondWord = button.getText();
+
+            if (isCorrectMatch(firstWord, secondWord)) {
+                handleCorrectMatch(button);
+            } else {
+                handleIncorrectMatch(button);
+            }
+        }
+    }
+
+    private void handleCorrectMatch(JButton secondButton) {
+        score++;
+        scoreLabel.setText("Score: " + score);
+
+        // Add words to cooldown
+        String word1 = selectedButton.getText();
+        String word2 = secondButton.getText();
+        long cooldownUntil = System.currentTimeMillis() + (WORD_COOLDOWN * 1000);
+        wordCooldowns.put(word1, cooldownUntil);
+        wordCooldowns.put(word2, cooldownUntil);
+
+        matchedButtons.add(selectedButton);
+        matchedButtons.add(secondButton);
+
+        selectedButton.setText("");
+        secondButton.setText("");
+        selectedButton.setBackground(null);
+        secondButton.setBackground(null);
+
+        if (matchedButtons.size() == 4) {
+            Timer replacementTimer = new Timer();
+            replacementTimer.schedule(new TimerTask() {
+                @Override
+                public void run() {
+                    SwingUtilities.invokeLater(() -> {
+                        replaceMatchedWords();
+                        matchedButtons.clear();
+                    });
+                }
+            }, 500);
+        }
+
+        selectedButton = null;
+        canSelect = true;
+    }
+
+    private void handleIncorrectMatch(JButton secondButton) {
+        score = 0;
+        scoreLabel.setText("Score: " + score);
+
+        selectedButton.setBackground(Color.RED);
+        secondButton.setBackground(Color.RED);
+
+        Timer resetTimer = new Timer();
+        resetTimer.schedule(new TimerTask() {
+            @Override
+            public void run() {
+                SwingUtilities.invokeLater(() -> {
+                    selectedButton.setBackground(null);
+                    secondButton.setBackground(null);
+                    selectedButton = null;
+                    canSelect = true;
+                });
+            }
+        }, 500);
+    }
+
+    private boolean isCorrectMatch(String word1, String word2) {
+        return wordPairs.containsKey(word1) && wordPairs.get(word1).equals(word2);
+    }
+
+    private boolean isWordOnCooldown(String word) {
+        if (wordCooldowns.containsKey(word)) {
+            long cooldownUntil = wordCooldowns.get(word);
+            if (System.currentTimeMillis() < cooldownUntil) {
+                return true;
+            } else {
+                wordCooldowns.remove(word);
+            }
+        }
+        return false;
+    }
+
+    private void replaceMatchedWords() {
+        List<String> availableSpanish = new ArrayList<>();
+        List<String> availableEnglish = new ArrayList<>();
+
+        // Get available words (not on cooldown)
+        for (String word : spanishWords) {
+            if (!isWordOnCooldown(word)) {
+                availableSpanish.add(word);
+                availableEnglish.add(wordPairs.get(word));
+            }
+        }
+
+        // Remove words that are currently in use
+        for (JButton button : spanishButtons) {
+            if (!button.getText().isEmpty()) {
+                availableSpanish.remove(button.getText());
+                availableEnglish.remove(wordPairs.get(button.getText()));
+            }
+        }
+
+        // If we don't have enough available words, clear some cooldowns
+        if (availableSpanish.size() < 2) {
+            long currentTime = System.currentTimeMillis();
+            List<String> wordsToRemove = new ArrayList<>();
+            for (Map.Entry<String, Long> entry : wordCooldowns.entrySet()) {
+                if (currentTime >= entry.getValue()) {
+                    wordsToRemove.add(entry.getKey());
+                }
+            }
+            for (String word : wordsToRemove) {
+                wordCooldowns.remove(word);
+            }
+
+            // Refresh available words
+            availableSpanish.clear();
+            availableEnglish.clear();
+            for (String word : spanishWords) {
+                if (!isWordOnCooldown(word)) {
+                    availableSpanish.add(word);
+                    availableEnglish.add(wordPairs.get(word));
+                }
+            }
+        }
+
+        if (!availableSpanish.isEmpty()) {
+            List<JButton> spanishMatched = new ArrayList<>();
+            List<JButton> englishMatched = new ArrayList<>();
+
+            for (JButton button : matchedButtons) {
+                if (Arrays.asList(spanishButtons).contains(button)) {
+                    spanishMatched.add(button);
+                } else {
+                    englishMatched.add(button);
+                }
+            }
+
+            for (int i = 0; i < spanishMatched.size(); i++) {
+                int randomIndex = random.nextInt(availableSpanish.size());
+                String newSpanishWord = availableSpanish.get(randomIndex);
+                String newEnglishWord = wordPairs.get(newSpanishWord);
+
+                spanishMatched.get(i).setText(newSpanishWord);
+                englishMatched.get(i).setText(newEnglishWord);
+
+                availableSpanish.remove(randomIndex);
+                int englishIndex = availableEnglish.indexOf(newEnglishWord);
+                if (englishIndex != -1) {
+                    availableEnglish.remove(englishIndex);
+                }
+            }
+        }
+    }
+
+    private void startTimer() {
+        timeLeft = GAME_DURATION;
+        gameTimer = new Timer();
+        gameTimer.scheduleAtFixedRate(new TimerTask() {
+            @Override
+            public void run() {
+                if (timeLeft > 0) {
+                    timeLeft--;
+                    SwingUtilities.invokeLater(() -> {
+                        int minutes = timeLeft / 60;
+                        int seconds = timeLeft % 60;
+                        timerLabel.setText(String.format("Time: %d:%02d", minutes, seconds));
+
+                        //Update Progress Bar
+                        int progress = (int) ((1 - (double) timeLeft / GAME_DURATION) * 100);
+                        progressBar.setValue(progress);
+                    });
+                } else {
+                    gameTimer.cancel();
+                    SwingUtilities.invokeLater(() -> {
+                        JOptionPane.showMessageDialog(matchtwotry.this,
+                                "Game Over!\nFinal Score: " + score,
+                                "Time's Up!",
+                                JOptionPane.INFORMATION_MESSAGE);
+                        System.exit(0);
+                    });
+                }
+            }
+        }, 0, 1000);
+    }
+
+    public static void main(String[] args) {
+        SwingUtilities.invokeLater(() -> {
+            new matchtwotry().setVisible(true);
+        });
+    }
+}
