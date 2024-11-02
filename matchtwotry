@@ -1,3 +1,4 @@
+
 import javax.swing.*;
 import java.awt.*;
 import java.util.*;
@@ -8,8 +9,6 @@ import javax.swing.JProgressBar;
 import java.io.*;
 import java.nio.file.Files;
 import java.nio.file.Paths;
-
-
 
 public class matchtwotry extends JFrame {
     private final int GAME_DURATION = 165; // 2 minutes in seconds
@@ -34,7 +33,7 @@ public class matchtwotry extends JFrame {
     private int score = 0;
     private JButton selectedButton = null;
     private boolean isSpanishSelected = false;
-    private final Map<String, String> wordPairs;
+    private Map<String, String> wordPairs = new HashMap<>();
     private Timer gameTimer;
     private int timeLeft;
     private final Random random = new Random();
